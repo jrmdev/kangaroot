@@ -1,0 +1,57 @@
+#left_pane {
+    dock: left;
+    width: 50%;
+}
+
+#right_pane {
+    dock: right;
+    width: 50%;
+}
+
+#prompt_container {
+    dock: bottom;
+    height: 1;
+}
+
+#prompt_label {
+    width: auto;
+    padding: 0 0 0 2;
+    background: $background-lighten-1;
+}
+
+#console_input {
+    width: 1fr;
+    border: none;
+    padding: 0;
+    background: $background;
+}
+
+#console_input:blur {
+    background: $background-lighten-1;
+    border: none;
+    padding: 0;
+}
+
+#console_log {
+    padding: 0 0 0 2;
+}
+
+#console_log:focus {
+    background: $background;
+}
+
+.pane_title {
+    background: #454545;
+    color: black;
+    text-style: bold;
+    text-align: center;
+    height: 1;
+}
+
+#output_b {
+    text-wrap: wrap;
+}
+
+#output_c {
+    text-wrap: wrap;
+}

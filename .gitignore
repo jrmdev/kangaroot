@@ -1,0 +1,20 @@
+*.7z
+*.db
+logs/*
+github/*
+tools/certipy-ad/*
+sync_to_local.sh
+sync_to_remote.sh
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+tasks/
+AGENTS.md
+*.egg-info
+
+# Virtual environments
+.venv
