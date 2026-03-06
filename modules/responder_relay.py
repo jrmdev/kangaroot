@@ -25,6 +25,7 @@ class ResponderRelay(BaseModule):
         return False
 
     async def run(self):
+        os.chdir(self.logs_dir)
         try:
             if not self.validate_options():
                 return

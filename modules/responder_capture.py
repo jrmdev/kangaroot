@@ -22,13 +22,14 @@ class ResponderCapture(BaseModule):
         return False
    
     async def run(self):
+        os.chdir(self.logs_dir)
         try:
             if not self.validate_options():
                 return
 
             if not self._is_running_as_root():
                 self.pane_a.write(
-                    "[red][!] This module must be run as root to use MiniResponder.[/red]"
+                    "[red][!] Please run as root to use MiniResponder.[/red]"
                 )
                 return
 
