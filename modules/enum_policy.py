@@ -83,7 +83,7 @@ class DomainPolicyEnum(BaseModule):
             return
 
         base = [
-            "bloodyAD",
+            "../tools/.bin/bloodyAD",
             "--host",
             self.opts.dc_hostname,
             "--dc-ip",

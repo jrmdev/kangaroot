@@ -56,15 +56,10 @@ class LDAPHardening(BaseModule):
             )
             return
 
-        script = Path(self.tool_dir) / "certipy-ad" / "bin" / "CheckLDAPStatus.py"
-        if not script.exists():
-            self.pane_a.write(f"[red][!] CheckLDAPStatus.py not found: {script}[/red]")
-            return
-
         command_parts = [
             "timeout",
             "5",
-            str(script),
+            "../tools/.bin/CheckLDAPStatus.py",
             "-dc-ip",
             dc_ip,
             "-domain",

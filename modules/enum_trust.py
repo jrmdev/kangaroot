@@ -77,7 +77,7 @@ class TrustEnum(BaseModule):
 
         command_parts = (
             [
-                "bloodyAD",
+                "../tools/.bin/bloodyAD",
                 "--host",
                 self.opts.dc_hostname,
                 "--dc-ip",

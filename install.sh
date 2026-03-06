@@ -50,6 +50,7 @@ ln -sf "$ROOT_DIR/tools/certipy-ad/bin/GetUserSPNs.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/GetNPUsers.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/findDelegation.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/Get-GPPPassword.py" "$UV_TOOL_BIN_DIR/"
+ln -sf "$ROOT_DIR/tools/certipy-ad/bin/CheckLDAPStatus.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/lookupsid.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/ticketer.py" "$UV_TOOL_BIN_DIR/"
 

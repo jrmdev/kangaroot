@@ -146,7 +146,7 @@ class AuthCheck(BaseModule):
 
         query_user = self.opts.username.split("@", 1)[0]
         command_parts = [
-            "bloodyAD",
+            "../tools/.bin/bloodyAD",
             "--host",
             self.opts.dc_hostname,
             "--dc-ip",
