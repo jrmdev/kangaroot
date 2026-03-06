@@ -829,6 +829,20 @@ class Tool:
             self.output_pane.write(line)
 
     ###################################
+    ## Responder wrapper functions
+    ###################################
+
+    async def miniresponder(self, iface: str, respond_only: bool = False):
+        cmd = ["../tools/.bin/miniresponder", "-I", iface]
+        if respond_only:
+            cmd.append("-respondonly")
+
+        async for line in self.run_command(shlex.join(cmd), self.output_pane):
+            self.output_pane.write(line)
+
+        return True
+
+    ###################################
     ## Certipy wrapper functions
     ###################################
 

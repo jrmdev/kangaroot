@@ -1,7 +1,7 @@
 *.7z
 *.db
 logs/*
-github/*
+github/
 tools/certipy-ad/*
 sync_to_local.sh
 sync_to_remote.sh

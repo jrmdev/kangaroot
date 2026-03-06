@@ -53,6 +53,8 @@ ln -sf "$ROOT_DIR/tools/certipy-ad/bin/Get-GPPPassword.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/CheckLDAPStatus.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/lookupsid.py" "$UV_TOOL_BIN_DIR/"
 ln -sf "$ROOT_DIR/tools/certipy-ad/bin/ticketer.py" "$UV_TOOL_BIN_DIR/"
+ln -sf "$ROOT_DIR/tools/certipy-ad/bin/describeTicket.py" "$UV_TOOL_BIN_DIR/"
+ln -sf "$ROOT_DIR/tools/miniresponder/bin/miniresponder" "$UV_TOOL_BIN_DIR/"
 
 create_tool_helper dnstool krbrelayx/dnstool.py
 create_tool_helper printerbug krbrelayx/printerbug.py

@@ -279,12 +279,7 @@ class BaseModule(ABC):
 
         Tries multiple invocation styles for compatibility across environments.
         """
-        script = Path(self.tool_dir) / "certipy-ad" / "bin" / "describeTicket.py"
-        commands = [["describeTicket.py", str(ticket)]]
-
-        if script.exists():
-            commands.append([str(script), str(ticket)])
-            commands.append([sys.executable, str(script), str(ticket)])
+        commands = [["../tools/bin/describeTicket.py", str(ticket)]]
 
         errors = []
         for cmd in commands:
