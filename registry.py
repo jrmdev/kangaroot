@@ -8,7 +8,7 @@ import logging
 
 from Crypto.Hash import MD4
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 from job_manager import JobManager
 from credential_store import get_encryption
 
@@ -347,6 +347,78 @@ class ModuleRegistry:
         except Exception as e:
             logger.error(f"Error adding credential: {e}", exc_info=True)
             return -1
+
+    def upsert_credential(self, domain: str, username: str, password_or_nthash: str) -> Tuple[str, int]:
+        """
+        Add or update a credential keyed by domain/username.
+
+        Returns:
+            Tuple of (action, credential_id):
+            - ("added", id) when a new credential is inserted
+            - ("updated", id) when an existing credential is updated
+            - ("error", -1) on failure
+        """
+        try:
+            cursor = self.conn.cursor()
+
+            # Determine if it's a hash or password
+            if re.match(r'^[a-fA-F0-9]{32}$', password_or_nthash):
+                password = ""
+                nthash = password_or_nthash.lower()
+            else:
+                password = password_or_nthash
+                nthash = self._calculate_nthash(password)
+
+            # Encrypt sensitive data before storing
+            encrypted_password = self.encryption.encrypt(password) if password else ""
+            encrypted_nthash = self.encryption.encrypt(nthash)
+
+            cursor.execute(
+                """SELECT id, domain, username
+                   FROM credentials
+                   WHERE lower(domain)=? AND lower(username)=?
+                   ORDER BY id ASC
+                   LIMIT 1""",
+                (domain.lower(), username.lower()),
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                cred_id, existing_domain, existing_username = existing
+                cursor.execute(
+                    """UPDATE credentials
+                       SET domain=?, username=?, password=?, nthash=?
+                       WHERE domain=? AND username=?""",
+                    (
+                        domain,
+                        username,
+                        encrypted_password,
+                        encrypted_nthash,
+                        existing_domain,
+                        existing_username,
+                    ),
+                )
+                self.conn.commit()
+                logger.info(f"Updated credential {cred_id} for {username}@{domain}")
+                return "updated", cred_id
+
+            cursor.execute("SELECT MAX(id) FROM credentials")
+            max_id = cursor.fetchone()[0]
+            new_id = (max_id + 1) if max_id is not None else 1
+
+            cursor.execute(
+                """INSERT INTO credentials (id, domain, username, password, nthash)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (new_id, domain, username, encrypted_password, encrypted_nthash),
+            )
+            self.conn.commit()
+
+            logger.info(f"Added credential {new_id} for {username}@{domain}")
+            return "added", new_id
+
+        except Exception as e:
+            logger.error(f"Error upserting credential: {e}", exc_info=True)
+            return "error", -1
 
     def delete_credential(self, cred_id: int) -> bool:
         """Delete a credential by ID"""

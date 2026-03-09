@@ -92,8 +92,8 @@ class PrivilegedEnum(BaseModule):
         step = 1
 
         if self.opts.include_admincount == "Yes":
-            self.pane_a.write(
-                f"[cyan]Step {step}:[/cyan] Enumerate adminCount=1 objects"
+            self.pane_b.write(
+                f"[cyan]Step {step}: Enumerate adminCount=1 objects[/cyan]"
             )
             step += 1
             command_parts = base + [

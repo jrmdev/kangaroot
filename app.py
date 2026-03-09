@@ -1,6 +1,7 @@
 import asyncio
 import shlex
 import time
+import traceback
 
 from typing import Any, List, cast
 from pathlib import Path
@@ -10,6 +11,7 @@ from textual.widgets import Input, RichLog, Static
 from textual.binding import Binding
 from console import InteractiveConsole, ConsolePane
 
+from rich.markup import escape
 from rich.table import Table
 from job_manager import JobManager
 from registry import ModuleRegistry
@@ -94,7 +96,9 @@ class MainApp(App):
         console_log.write(f"\n[cyan]{prompt_text}[/cyan]{command}")
         
         # Process command
-        asyncio.create_task(self._process_command(command, console_input, console_log))
+        asyncio.create_task(
+            self._process_command_safely(command, console_input, console_log)
+        )
         
         # Clear input
         console_input.value = ""
@@ -104,6 +108,50 @@ class MainApp(App):
         await self.job_manager.stop_all_jobs()
         self.module_registry.close()
         self.exit()
+
+    async def _process_command_safely(
+        self,
+        command: str,
+        console_input: InteractiveConsole,
+        console_log: RichLog,
+    ) -> None:
+        """Run a command and keep the console usable on failures."""
+        try:
+            await self._process_command(command, console_input, console_log)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._render_command_exception(command, exc, console_log)
+        finally:
+            self._restore_prompt(console_input)
+
+    def _restore_prompt(self, console_input: InteractiveConsole) -> None:
+        """Restore prompt label and focus after command completion."""
+        try:
+            console_input.update_prompt()
+            console_input.focus()
+        except Exception:
+            pass
+
+    def _render_command_exception(
+        self, command: str, exc: Exception, console_log: RichLog
+    ) -> None:
+        """Render unexpected exceptions in-pane instead of leaking to terminal."""
+        err = str(exc).strip() or exc.__class__.__name__
+        safe_command = escape(command)
+        console_log.write(f"[red][!] Command failed:[/red] `{safe_command}`")
+        console_log.write(f"[red]{escape(err)}[/red]")
+
+        try:
+            output = self.query_one("#output_c", RichLog)
+            output.write(
+                f"[bold red]Unhandled exception while running `{safe_command}`[/bold red]"
+            )
+            for block in traceback.format_exception(type(exc), exc, exc.__traceback__):
+                for line in block.rstrip().splitlines():
+                    output.write(f"[red]{escape(line)}[/red]")
+        except Exception:
+            pass
 
     async def _process_command(self, command: str, console_input: InteractiveConsole, console_log: RichLog):
         """Process user commands"""

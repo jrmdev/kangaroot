@@ -1,4 +1,5 @@
 import os
+import re
 import shlex
 
 from pathlib import Path
@@ -51,11 +52,37 @@ class AuthCheck(BaseModule):
     def __init__(self, registry, job_manager):
         super().__init__(registry, job_manager)
 
-    async def _run_and_capture(self, command_parts: list[str]) -> list[str]:
+    def _is_exception_line(self, line: str) -> bool:
+        stripped = line.strip()
+        return stripped.startswith("bloodyAD.exceptions.") or bool(
+            re.match(r"^[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):", stripped)
+        )
+
+    async def _run_and_capture(
+        self, command_parts: list[str], hide_tracebacks: bool = False
+    ) -> list[str]:
         captured = []
+        suppress_traceback_block = False
+
         async for line in self.run_command(shlex.join(command_parts), self.pane_b):
-            self.pane_b.write(line)
             captured.append(line)
+
+            if hide_tracebacks:
+                stripped = line.strip()
+                if stripped.startswith("Traceback (most recent call last):"):
+                    suppress_traceback_block = True
+                    continue
+
+                if suppress_traceback_block:
+                    if self._is_exception_line(stripped):
+                        suppress_traceback_block = False
+                    continue
+
+                if self._is_exception_line(stripped):
+                    continue
+
+            self.pane_b.write(line)
+
         return captured
 
     def _classify_domain_check(
@@ -138,7 +165,7 @@ class AuthCheck(BaseModule):
         return "unknown"
 
     async def _check_domain_auth(self, tool: Tool):
-        self.pane_a.write("[cyan]Step 1:[/cyan] Validate credentials against the domain")
+        self.pane_b.write("[cyan]Step 1: Validate credentials against the domain[/cyan]")
 
         auth_params = tool.get_auth_params("bloodyad")
         if not auth_params:
@@ -162,15 +189,20 @@ class AuthCheck(BaseModule):
             "sAMAccountName,distinguishedName",
         ]
 
-        lines = await self._run_and_capture(command_parts)
+        lines = await self._run_and_capture(command_parts, hide_tracebacks=True)
         fatal_error, no_result_filters = self.inspect_bloodyad_output(lines)
         status = self._classify_domain_check(lines, fatal_error, no_result_filters)
+
+        if status == "runtime_error":
+            self.pane_b.write(
+                "[yellow][!] bloodyAD returned a runtime error. Traceback output was suppressed; see saved logs for full details.[/yellow]"
+            )
 
         return status == "ok", status, lines
 
     async def _check_target_admin(self, tool: Tool):
         self.pane_a.write(
-            f"[cyan]Step 2:[/cyan] Check admin access on `{self.opts.target}` via `{self.opts.share}`"
+            f"[cyan]Step 2: Check admin access on `{self.opts.target}` via `{self.opts.share}`[/cyan]"
         )
 
         auth_params = tool.get_auth_params("impacket", target=self.opts.target)

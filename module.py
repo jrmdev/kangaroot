@@ -169,45 +169,59 @@ class BaseModule(ABC):
         Returns:
             True if all validations pass, False otherwise
         """
+        # Rebuild normalized option values each validation pass to avoid stale state.
+        self.opts = ModuleOptions()
         passed = True
         for opt_name in self.options:
-            opt_val, _ = self.get_option_value(opt_name)
+            try:
+                opt_val, _ = self.get_option_value(opt_name)
+            except ValueError:
+                opt_val = ""
+                if passed:
+                    passed = False
+                self.pane_a.write(
+                    f"[red][!] Option `{opt_name}` is not registered for module `{self.path}`. "
+                    "Run module registration again.[/red]"
+                )
 
+            setattr(self.opts, opt_name, opt_val)
             if self.options[opt_name]["required"] and not opt_val:
                 if passed:
                     passed = False
                 self.pane_a.write(
                     f"[red][!] Option `{opt_name}` cannot be empty.[/red]"
                 )
-            else:
-                setattr(self.opts, opt_name, opt_val)
 
         if "auth" in self.options:
-            opt_val, _ = self.get_option_value("auth")
-            opt_val = opt_val.replace("kerberos", "krb")
-            if opt_val not in ["ntlm", "krb"]:
+            auth = (getattr(self.opts, "auth", "") or "").strip().lower()
+            auth = auth.replace("kerberos", "krb")
+            if auth not in ["ntlm", "krb"]:
                 if passed:
                     passed = False
                 self.pane_a.write(
                     f"[red][!] Option `auth` must be 'ntlm' or 'krb'.[/red]"
                 )
             else:
-                setattr(self.opts, "auth", opt_val)
+                setattr(self.opts, "auth", auth)
 
         if hasattr(self.opts, "auth") and self.opts.auth == "ntlm":
-            if self.opts.password == "":
+            password = (getattr(self.opts, "password", "") or "").strip()
+            username = (getattr(self.opts, "username", "") or "").strip()
+            domain = (getattr(self.opts, "domain", "") or "").strip()
+
+            if password == "":
                 self.pane_a.write(
                     f"[red][!] Password or NT hash is necessary for NTLM authentication.[/red]"
                 )
                 if passed:
                     passed = False
-            if self.opts.username == "":
+            if username == "":
                 self.pane_a.write(
                     f"[red][!] Username is necessary for NTLM authentication.[/red]"
                 )
                 if passed:
                     passed = False
-            if self.opts.domain == "":
+            if domain == "":
                 self.pane_a.write(
                     f"[red][!] Domain is necessary for NTLM authentication.[/red]"
                 )
@@ -219,7 +233,16 @@ class BaseModule(ABC):
             and self.opts.auth == "krb"
             and not skip_ticket_check
         ):
-            fn = self.opts.username.lower() + ".ccache"
+            username = (getattr(self.opts, "username", "") or "").strip()
+            if username == "":
+                self.pane_a.write(
+                    f"[red][!] Username is necessary for Kerberos authentication.[/red]"
+                )
+                if passed:
+                    passed = False
+                return passed
+
+            fn = username.lower() + ".ccache"
             ticket = Path(self.logs_dir) / fn
 
             if ticket.exists():
@@ -244,12 +267,67 @@ class BaseModule(ABC):
         self.env["KRB5CCNAME"] = fname
         pane.write(f"[bold]{self.path}> export KRB5CCNAME={fname}[/bold]")
 
+    def _format_bloodyad_exception(self, line: str) -> str:
+        """Condense noisy bloodyAD exception lines for pane output."""
+        stripped = line.strip()
+        match = re.match(
+            r"^(?P<exc>[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)):\s*(?P<msg>.*)$",
+            stripped,
+        )
+        if not match:
+            return stripped
+
+        exc_name = match.group("exc")
+        exc_short = exc_name.rsplit(".", 1)[-1]
+        exc_msg = match.group("msg").strip()
+
+        # Keep no-result responses concise and user-friendly.
+        if exc_short == "NoResultError":
+            return exc_msg or "No objects returned."
+
+        if exc_msg:
+            return f"{exc_short}: {exc_msg}"
+
+        return exc_short
+
     async def run_command(self, command, pane):
         cmdline = f"{self.path}> " + command.replace("../tools/.bin/", "")
         pane.write(f"[bold]{cmdline}[/bold]")
         command_runner = Command(self.job_manager, self.env, pane)
+        is_bloodyad_command = "bloodyad" in command.lower()
+        in_bloodyad_traceback = False
+
         async for line in command_runner.run(command):
+            if not is_bloodyad_command:
+                yield line
+                continue
+
+            stripped = line.strip()
+
+            if stripped.startswith("Traceback (most recent call last):"):
+                in_bloodyad_traceback = True
+                continue
+
+            if in_bloodyad_traceback:
+                if re.match(
+                    r"^[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):",
+                    stripped,
+                ):
+                    in_bloodyad_traceback = False
+                    yield self._format_bloodyad_exception(stripped)
+                continue
+
+            if re.match(
+                r"^bloodyAD\.exceptions\.[A-Za-z0-9_]+:",
+                stripped,
+            ):
+                yield self._format_bloodyad_exception(stripped)
+                continue
+
             yield line
+
+        if is_bloodyad_command and in_bloodyad_traceback:
+            yield "BloodyADError: traceback detected"
 
     async def get_command_output(self, command: str):
         command_runner = Command(self.job_manager, self.env)
@@ -367,7 +445,24 @@ class BaseModule(ABC):
                 no_result_filters.append((match.group(1) if match else line).strip())
                 continue
 
+            if line.startswith("No object found in ") and " with filter:" in line:
+                match = re.search(r"with filter:\s*(.+)$", line)
+                no_result_filters.append((match.group(1) if match else line).strip())
+                continue
+
+            if line.startswith("NoResultError:"):
+                match = re.search(r"with filter:\s*(.+)$", line)
+                no_result_filters.append((match.group(1) if match else line).strip())
+                continue
+
             if re.search(r"bloodyAD\.exceptions\.[A-Za-z0-9_]+:", line):
+                saw_non_noresult_exception = True
+                continue
+
+            if re.match(
+                r"^[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):",
+                line,
+            ):
                 saw_non_noresult_exception = True
 
         has_fatal_error = saw_non_noresult_exception or (

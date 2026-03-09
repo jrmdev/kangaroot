@@ -7,8 +7,7 @@ from tool import Tool
 class GenericAll(BaseModule):
     path = "acl/genericall"
     description = (
-        "Add GenericAll from a chosen source user to a target account. "
-        "Set cleanup=true to remove GenericAll instead."
+        "Add GenericAll from a chosen source user to a target account."
     )
     options = {
         "dc_ip": {

@@ -31,7 +31,7 @@ class TrustEnum(BaseModule):
             "required": True,
         },
         "transitive": {
-            "default": "Yes",
+            "default": "No",
             "description": "Enumerate transitive trusts when possible",
             "required": False,
             "boolean": True,

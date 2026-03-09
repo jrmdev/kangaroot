@@ -47,6 +47,11 @@ class DCSync(BaseModule):
                 if self.registry._calculate_nthash(u) == h:
                     h = u
 
-                if self.registry.add_credential(d, u, h):
-                    if hasattr(self, 'pane_a'):
+                action, _ = self.registry.upsert_credential(d, u, h)
+                if hasattr(self, 'pane_a'):
+                    if action == "added":
                         self.pane_a.write(f"✓ Added credential for `{u}@{d}` => `{h}`")
+                    elif action == "updated":
+                        self.pane_a.write(f"✓ Updated credential for `{u}@{d}` => `{h}`")
+                    else:
+                        self.pane_a.write(f"[red]Error storing credential for `{u}@{d}`[/red]")
