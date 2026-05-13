@@ -209,19 +209,19 @@ class BaseModule(ABC):
             username = (getattr(self.opts, "username", "") or "").strip()
             domain = (getattr(self.opts, "domain", "") or "").strip()
 
-            if password == "":
+            if password == "" and self.options.get("password", {}).get("required", False):
                 self.pane_a.write(
                     f"[red][!] Password or NT hash is necessary for NTLM authentication.[/red]"
                 )
                 if passed:
                     passed = False
-            if username == "":
+            if username == "" and self.options.get("username", {}).get("required", False):
                 self.pane_a.write(
                     f"[red][!] Username is necessary for NTLM authentication.[/red]"
                 )
                 if passed:
                     passed = False
-            if domain == "":
+            if domain == "" and self.options.get("domain", {}).get("required", False):
                 self.pane_a.write(
                     f"[red][!] Domain is necessary for NTLM authentication.[/red]"
                 )
@@ -234,7 +234,7 @@ class BaseModule(ABC):
             and not skip_ticket_check
         ):
             username = (getattr(self.opts, "username", "") or "").strip()
-            if username == "":
+            if username == "" and self.options.get("username", {}).get("required", False):
                 self.pane_a.write(
                     f"[red][!] Username is necessary for Kerberos authentication.[/red]"
                 )

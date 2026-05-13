@@ -13,6 +13,7 @@ build/
 dist/
 wheels/
 tasks/
+tests/
 AGENTS.md
 *.egg-info
 
