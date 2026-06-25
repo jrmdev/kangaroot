@@ -2,9 +2,8 @@ import os
 import shlex
 
 from pathlib import Path
+from auth_manager import EMPTY_LM_HASH
 from module import BaseModule
-
-EMPTY_LM_HASH = "aad3b435b51404eeaad3b435b51404ee"
 
 
 class BloodHoundCollect(BaseModule):

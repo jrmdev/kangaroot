@@ -261,21 +261,21 @@ class Tool:
             logger.error("get_auth_params called before set_auth")
             return None
 
+        auth_param_builders = {
+            "impacket": lambda: self.auth_manager.get_impacket_params(target),
+            "certipy": self.auth_manager.get_certipy_params,
+            "bloodyad": self.auth_manager.get_bloodyad_params,
+            "petitpotam": self.auth_manager.get_petitpotam_params,
+            "krbrelayx": self.auth_manager.get_krbrelayx_params,
+        }
         try:
-            if tool_type == "impacket":
-                return self.auth_manager.get_impacket_params(target)
-            elif tool_type == "certipy":
-                return self.auth_manager.get_certipy_params()
-            elif tool_type == "bloodyad":
-                return self.auth_manager.get_bloodyad_params()
-            elif tool_type == "petitpotam":
-                return self.auth_manager.get_petitpotam_params()
-            elif tool_type == "krbrelayx":
-                return self.auth_manager.get_krbrelayx_params()
-            else:
+            builder = auth_param_builders.get(tool_type)
+            if builder is None:
                 self.pane_a.write(f"[red]Error: Unknown tool type '{tool_type}'.[/red]")
                 logger.error(f"Unknown tool type requested: {tool_type}")
                 return None
+
+            return builder()
 
         except Exception as e:
             self.pane_a.write(f"[red]Error building auth params: {e}[/red]")

@@ -8,15 +8,13 @@ from pathlib import Path
 import dns.exception
 import dns.resolver
 
+from auth_manager import EMPTY_LM_HASH
 from module import BaseModule
 from tool import Tool
 from modules.coercion_dfscoerce import DfsCoerce
 from modules.coercion_petitpotam import PetitPotam
 from modules.coercion_printerbug import PrinterBug
 from modules.coercion_shadowcoerce import ShadowCoerce
-
-EMPTY_LM_HASH = "aad3b435b51404eeaad3b435b51404ee"
-
 
 class UnconstrainedDelegation(BaseModule):
     path = "delegation/unconstrained"
@@ -180,7 +178,7 @@ This module:
         command_parts = [
             "timeout",
             "25",
-            "../tools/krbrelayx",
+            "../tools/.bin/krbrelayx",
             "-ip",
             self.opts.listen_ip,
             "-dc-ip",

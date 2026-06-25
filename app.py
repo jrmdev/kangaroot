@@ -28,6 +28,9 @@ class MainApp(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_panes", "Clear Panes"),
+        Binding("f2", "focus_console", "Console"),
+        Binding("f3", "focus_output_b", "Output 1"),
+        Binding("f4", "focus_output_c", "Output 2"),
     ]
 
     def __init__(self):
@@ -73,6 +76,22 @@ class MainApp(App):
         
         console_input.focus()
 
+    async def action_quit(self) -> None:
+        """Route keyboard quit through normal cleanup."""
+        await self._quit()
+
+    def action_clear_panes(self) -> None:
+        self._clear_panes()
+
+    def action_focus_console(self) -> None:
+        self.query_one("#console_input", InteractiveConsole).focus()
+
+    def action_focus_output_b(self) -> None:
+        self.query_one("#output_b", RichLog).focus()
+
+    def action_focus_output_c(self) -> None:
+        self.query_one("#output_c", RichLog).focus()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command submission"""
         if event.input.id != "console_input":
@@ -93,7 +112,7 @@ class MainApp(App):
             prompt_text = f"{__prog__} ({console_input.current_module}) > "
         else:
             prompt_text = f"{__prog__} > "
-        console_log.write(f"\n[cyan]{prompt_text}[/cyan]{command}")
+        console_log.write(f"\n[cyan]{prompt_text}[/cyan]{escape(command)}")
         
         # Process command
         asyncio.create_task(
@@ -245,10 +264,11 @@ class MainApp(App):
                 console_log.write(f"[green]✓ Job {job_id} stopped[/green]")
                 
                 # Notify the pane
-                if job['pane'] == "Pane B":
+                if job['pane'] in {"Pane B", "Output 1", "output_b"}:
                     output_pane = self.query_one("#output_b", RichLog)
                 else:
                     output_pane = self.query_one("#output_c", RichLog)
+                output_pane.write(f"[yellow]Job {job_id} stopped by user[/yellow]")
             else:
                 console_log.write(f"[red]Failed to stop job {job_id}[/red]")
 
@@ -268,9 +288,7 @@ class MainApp(App):
             parts = path.split('/')
             category = '/'.join(parts[:-1]) if len(parts) > 1 else 'root'
             
-            if category not in categories:
-                categories[category] = []
-            categories[category].append((path, module_info['description']))
+            categories.setdefault(category, []).append((path, module_info['description']))
         
         # Display modules grouped by category
         for category in sorted(categories.keys()):
@@ -297,7 +315,7 @@ class MainApp(App):
             console_log.write("  show                - Show module options")
             console_log.write("  back                - Go back to main menu")
             console_log.write("  jobs                - Show running jobs")
-            console_log.write("  stop <id>           - Stop a job by ID")
+            console_log.write("  stop [id]           - Stop a job by ID, or all jobs")
             console_log.write("  clear               - Clear all panes")
             console_log.write("  exit                - Exit application")
         else:
@@ -306,7 +324,7 @@ class MainApp(App):
             console_log.write("  list             - List all available modules")
             console_log.write("  jobs             - Show running jobs")
             console_log.write("  cred <...>       - Manage credentials (list, add, del, use, find)")
-            console_log.write("  stop <id>        - Stop a job by ID")
+            console_log.write("  stop [id]        - Stop a job by ID, or all jobs")
             console_log.write("  use <module>     - Select a module")
             console_log.write("  setg <opt> <val> - Set a global option")
             console_log.write("  unsetg <opt>     - Unset a global option")
@@ -719,4 +737,6 @@ class MainApp(App):
             console_log.write(f"[green]✓ Using credentials for {username}@{domain}[/green]")
 
         else:
-            console_log.write(f"[red]Error: Unknown command '{command}'. Use 'list', 'add', or 'del'[/red]")
+            console_log.write(
+                f"[red]Error: Unknown command '{escape(command)}'. Use 'list', 'add', or 'del'[/red]"
+            )

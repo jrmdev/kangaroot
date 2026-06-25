@@ -4,7 +4,68 @@ import shlex
 import select
 import re
 
+from pathlib import Path
 from typing import AsyncGenerator
+
+ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+REPO_ROOT = Path(__file__).resolve().parent
+TOOLS_ROOT = REPO_ROOT / "tools"
+TOOLS_BIN_ROOT = TOOLS_ROOT / ".bin"
+
+
+def _first_existing_file(candidates: list[Path]) -> Path | None:
+    for candidate in candidates:
+        if candidate.exists() and not candidate.is_dir():
+            return candidate
+    return None
+
+
+def resolve_bundled_tool_token(token: str) -> str:
+    """Resolve repo-local tool entrypoints independently of the process cwd."""
+    if not token:
+        return token
+
+    tool_bin_prefixes = (
+        "../tools/.bin/",
+        "./tools/.bin/",
+        "tools/.bin/",
+        "../tools/bin/",
+        "./tools/bin/",
+        "tools/bin/",
+    )
+    tool_prefixes = (
+        "../tools/",
+        "./tools/",
+        "tools/",
+    )
+
+    for prefix in tool_bin_prefixes:
+        if token.startswith(prefix):
+            suffix = token[len(prefix):]
+            candidates = [
+                TOOLS_BIN_ROOT / suffix,
+                TOOLS_ROOT / "bin" / suffix,
+            ]
+            resolved = _first_existing_file(candidates)
+            return str(resolved or candidates[0])
+
+    for prefix in tool_prefixes:
+        if token.startswith(prefix):
+            suffix = token[len(prefix):]
+            direct_candidate = TOOLS_ROOT / suffix
+            wrapper_candidate = TOOLS_BIN_ROOT / Path(suffix).name
+            resolved = _first_existing_file([direct_candidate, wrapper_candidate])
+            if resolved:
+                return str(resolved)
+            if direct_candidate.exists() and direct_candidate.is_dir():
+                return str(wrapper_candidate)
+            return str(direct_candidate)
+
+    return token
+
+
+def resolve_command_tokens(command: str) -> list[str]:
+    return [resolve_bundled_tool_token(token) for token in shlex.split(command)]
 
 class Command():
 
@@ -22,7 +83,10 @@ class Command():
 
         try:
             # Spawn PTY process
-            proc = ptyprocess.PtyProcess.spawn(shlex.split(command), env=self.env)
+            proc = ptyprocess.PtyProcess.spawn(
+                resolve_command_tokens(command),
+                env=self.env,
+            )
             fd = proc.fd
             
             job_id = self.job_manager.add_job(command, proc, self.pane_name)
@@ -92,7 +156,13 @@ class Command():
 
     async def get_command_output(self, command: str) -> str:
         """Execute a quick command and return output without adding to job manager"""
-        proc = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, bufsize=0, env=self.env)
+        proc = await asyncio.create_subprocess_exec(
+            *resolve_command_tokens(command),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            bufsize=0,
+            env=self.env,
+        )
         
         stdout_data, _ = await proc.communicate()
         
@@ -107,7 +177,13 @@ class Command():
 
     async def stream_command_output(self, command: str) -> AsyncGenerator[str, None]:
         """Execute a quick command and stream output without adding to job manager"""
-        proc = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, bufsize=0, env=self.env)
+        proc = await asyncio.create_subprocess_exec(
+            *resolve_command_tokens(command),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            bufsize=0,
+            env=self.env,
+        )
 
         if proc.stdout:
             async for line in proc.stdout:
@@ -175,4 +251,4 @@ class Command():
         return pane_name
 
     def strip_ansi_codes(self, text):
-        return re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', text)
+        return ANSI_ESCAPE_RE.sub('', text)

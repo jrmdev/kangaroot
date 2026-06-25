@@ -6,6 +6,30 @@ from textual import events
 from typing import Any, cast
 
 __prog__ = 'kangaroot'
+COMMANDS = [
+    "use",
+    "run",
+    "set",
+    "setg",
+    "show",
+    "info",
+    "back",
+    "help",
+    "exit",
+    "quit",
+    "list",
+    "jobs",
+    "stop",
+    "unset",
+    "unsetg",
+    "globals",
+    "clear",
+    "cred",
+    "creds",
+    "tgt",
+    "ptt",
+    "tickets",
+]
 
 class ConsolePane(Vertical):
     async def on_click(self, event: Click) -> None:
@@ -115,35 +139,36 @@ class InteractiveConsole(Input):
             elif current_value.startswith("set "):
                 # Tab completion for option names
                 if self.module_instance:
-                    module = cast(Any, self.module_instance)
-                    options = list(module.options.keys())
-                    partial = current_value[4:].split()[0] if len(current_value[4:].split()) > 0 else ""
+                    options = self._module_option_names()
+                    parts = current_value[4:].split(maxsplit=1)
+                    partial = parts[0] if parts else ""
                     matching_options = [opt for opt in options if opt.startswith(partial)]
                     self.completion_suggestions = [f"set {opt}" for opt in matching_options]
             elif current_value.startswith("unset "):
                 # Tab completion for option names in module
                 if self.module_instance:
-                    module = cast(Any, self.module_instance)
-                    options = list(module.options.keys())
-                    partial = current_value[6:].split()[0] if len(current_value[6:].split()) > 0 else ""
+                    options = self._module_option_names()
+                    parts = current_value[6:].split(maxsplit=1)
+                    partial = parts[0] if parts else ""
                     matching_options = [opt for opt in options if opt.startswith(partial)]
                     self.completion_suggestions = [f"unset {opt}" for opt in matching_options]
             elif current_value.startswith("setg "):
                 # Tab completion for all known options
-                partial = current_value[5:].split()[0] if len(current_value[5:].split()) > 0 else ""
+                parts = current_value[5:].split(maxsplit=1)
+                partial = parts[0] if parts else ""
                 all_options = self.module_registry.get_all_option_names()
                 matching_options = [opt for opt in sorted(all_options) if opt.startswith(partial)]
                 self.completion_suggestions = [f"setg {opt}" for opt in matching_options]
             elif current_value.startswith("unsetg "):
                 # Tab completion for all known options
-                partial = current_value[7:].split()[0] if len(current_value[7:].split()) > 0 else ""
+                parts = current_value[7:].split(maxsplit=1)
+                partial = parts[0] if parts else ""
                 all_options = self.module_registry.get_all_option_names()
                 matching_options = [opt for opt in sorted(all_options) if opt.startswith(partial)]
                 self.completion_suggestions = [f"unsetg {opt}" for opt in matching_options]
             else:
                 # Basic command completion
-                commands = ["use", "run", "set", "setg", "show", "info", "back", "help", "exit", "list", "jobs", "stop", "unset", "unsetg", "globals", "clear", "cred", "tgt", "ptt"]
-                matching = [cmd for cmd in commands if cmd.startswith(current_value)]
+                matching = [cmd for cmd in COMMANDS if cmd.startswith(current_value)]
                 self.completion_suggestions = matching
         
         # Cycle through suggestions
@@ -159,6 +184,15 @@ class InteractiveConsole(Input):
                 self.completion_suggestions = []
                 self.completion_index = 0
     
+    def _module_option_names(self) -> list[str]:
+        """Return current and paired-module option names for completion."""
+        module = cast(Any, self.module_instance)
+        options = set(module.options.keys())
+        paired_module = getattr(module, "paired_module", None)
+        if paired_module:
+            options.update(paired_module.options.keys())
+        return sorted(options)
+
     def add_to_history(self, command: str):
         """Add command to history"""
         if command and (not self.history or self.history[-1] != command):

@@ -1,9 +1,7 @@
 import sqlite3
 import os
 import re
-import importlib
 import importlib.util
-import sys
 import logging
 
 from Crypto.Hash import MD4
@@ -14,13 +12,15 @@ from credential_store import get_encryption
 
 __prog__ = 'kangaroot'
 logger = logging.getLogger(__name__)
+REPO_ROOT = Path(__file__).resolve().parent
 
 class ModuleRegistry:
     """Manages module registration, loading, and global variables"""
     
-    def __init__(self):
-        # Prefer the new DB name, but transparently reuse the legacy one if present.
-        self.db_path = f"{__prog__}.db"
+    def __init__(self, db_path: str | Path | None = None):
+        self.repo_root = REPO_ROOT
+        self.modules_dir = self.repo_root / "modules"
+        self.db_path = str(Path(db_path) if db_path is not None else self.repo_root / f"{__prog__}.db")
         self.conn = sqlite3.connect(self.db_path)
         self._init_database()
 
@@ -88,23 +88,25 @@ class ModuleRegistry:
     
     def register_modules_from_disk(self):
         """Scan modules directory and register all modules"""
-        modules_dir = "modules"
-        if not os.path.exists(modules_dir):
+        modules_dir = self.modules_dir
+        if not modules_dir.exists():
             print(f"Modules directory '{modules_dir}' not found")
             return
         
-        # Clear existing module data
         cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM modules")
-        cursor.execute("DELETE FROM module_options")
-        self.conn.commit()
-        
-        # Scan for module files
+        module_files = []
         for root, dirs, files in os.walk(modules_dir):
+            dirs.sort()
             for file in sorted(files):
                 if file.endswith('.py') and not file.startswith('__'):
-                    file_path = os.path.join(root, file)
-                    self._register_module_file(file_path)
+                    module_files.append(os.path.join(root, file))
+
+        self.loaded_modules.clear()
+        with self.conn:
+            cursor.execute("DELETE FROM modules")
+            cursor.execute("DELETE FROM module_options")
+            for file_path in module_files:
+                self._register_module_file(file_path, cursor)
         
         print(f"Registered {len(self.get_all_modules())} modules")
 
@@ -131,6 +133,10 @@ class ModuleRegistry:
 
     async def load_module(self, module_path: str, job_manager: JobManager):
         """Load and instantiate a module"""
+        cached = self.loaded_modules.get(module_path)
+        if cached:
+            return cached["instance"]
+
         cursor = self.conn.cursor()
         cursor.execute("SELECT class_name, file_path FROM modules WHERE path = ?", (module_path,))
         row = cursor.fetchone()
@@ -139,20 +145,18 @@ class ModuleRegistry:
             return None
         
         class_name, file_path = row
-        file_path = str(Path(__file__).parent / file_path)
+        file_path = str((self.repo_root / file_path).resolve())
         
         try:
-            # Load the module file
-            spec = importlib.util.spec_from_file_location("temp_module", file_path)
-            if spec is None or spec.loader is None:
-                return None
-                
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            module = self._load_module_from_file(
+                file_path, self._get_module_name(module_path)
+            )
             
             # Get the module class and instantiate it
             module_class = getattr(module, class_name)
-            return module_class(self, job_manager)
+            instance = module_class(self, job_manager)
+            self.loaded_modules[module_path] = {"instance": instance}
+            return instance
             
         except Exception as e:
             print(f"Error loading module {module_path}: {e}")
@@ -161,17 +165,24 @@ class ModuleRegistry:
     def _to_bool_str(self, var: str):
         return "Yes" if var.lower() in ['true', '1', 'yes'] else "No"
 
-    def _register_module_file(self, file_path: str):
+    def _load_module_from_file(self, file_path: str, module_name: str):
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Failed to create module spec for {file_path}")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def _register_module_file(self, file_path: str, cursor=None):
         """Register a single module file"""
+        owns_transaction = cursor is None
+        if cursor is None:
+            cursor = self.conn.cursor()
+
         try:
-            # Load the module file
-            spec = importlib.util.spec_from_file_location("temp_module", file_path)
-            if spec is None or spec.loader is None:
-                print("Failed to create spec")
-                return
-        
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            module_name = self._get_module_name(Path(file_path).with_suffix("").as_posix())
+            module = self._load_module_from_file(file_path, module_name)
             
             # Find classes that are defined in this specific file (not imported)
             for attr_name in dir(module):
@@ -189,20 +200,21 @@ class ModuleRegistry:
                             
                             # Only register if it's not the base class and has actual values
                             if attr_name != 'BaseModule' and path and path != '':
-                                cursor = self.conn.cursor()
+                                stored_file_path = self._stored_module_path(file_path)
                                 cursor.execute("""INSERT OR REPLACE INTO modules
                                                 (path, class_name, file_path, description)
                                                 VALUES (?, ?, ?, ?)""",
-                                            (path, attr_name, file_path, description))
+                                            (path, attr_name, stored_file_path, description))
                         
                                 # Register module options
                                 for opt_name, opt_info in options.items():
                                     cursor.execute("""INSERT OR REPLACE INTO module_options
                                                     (module_path, option_name, default_value, required, description)
-                                                    VALUES (?, ?, ?, ?, ?)""",
+                                                VALUES (?, ?, ?, ?, ?)""",
                                                 (path, opt_name, opt_info['default'], opt_info['required'], opt_info['description']))
                         
-                                self.conn.commit()
+                                if owns_transaction:
+                                    self.conn.commit()
                                 print(f"Registered module: {path} (class: {attr_name})")
                                 return
                     
@@ -214,14 +226,21 @@ class ModuleRegistry:
         cursor = self.conn.cursor()
         cursor.execute("SELECT path, description FROM modules ORDER BY path")
         return [{'path': row[0], 'description': row[1]} for row in cursor.fetchall()]
+
+    def _stored_module_path(self, file_path: str) -> str:
+        """Store repo-relative module paths for portable registry rows."""
+        path = Path(file_path).resolve()
+        try:
+            return path.relative_to(self.repo_root).as_posix()
+        except ValueError:
+            return path.as_posix()
     
     def get_module_suggestions(self, partial: str) -> List[str]:
         """Get module path suggestions for tab completion"""
         cursor = self.conn.cursor()
         cursor.execute("SELECT path FROM modules WHERE path LIKE ? ORDER BY path", 
                       (f"{partial}%",))
-        suggestions = [row[0] for row in cursor.fetchall()]
-        return sorted(set(suggestions))
+        return [row[0] for row in cursor.fetchall()]
     
     def _get_module_name(self, module_path: str) -> str:
         """Generate consistent module name for sys.modules"""
@@ -308,13 +327,7 @@ class ModuleRegistry:
         try:
             cursor = self.conn.cursor()
 
-            # Determine if it's a hash or password
-            if re.match(r'^[a-fA-F0-9]{32}$', password_or_nthash):
-                password = ""
-                nthash = password_or_nthash.lower()
-            else:
-                password = password_or_nthash
-                nthash = self._calculate_nthash(password)
+            password, nthash = self._split_credential_secret(password_or_nthash)
 
             # Check if credential already exists
             cursor.execute(
@@ -327,9 +340,9 @@ class ModuleRegistry:
                 logger.info(f"Credential already exists for {username}@{domain}")
                 return 0
 
-            # Encrypt sensitive data before storing
-            encrypted_password = self.encryption.encrypt(password) if password else ""
-            encrypted_nthash = self.encryption.encrypt(nthash)
+            encrypted_password, encrypted_nthash = self._encrypt_credential_secret(
+                password, nthash
+            )
 
             cursor.execute("SELECT MAX(id) FROM credentials")
             max_id = cursor.fetchone()[0]
@@ -361,17 +374,10 @@ class ModuleRegistry:
         try:
             cursor = self.conn.cursor()
 
-            # Determine if it's a hash or password
-            if re.match(r'^[a-fA-F0-9]{32}$', password_or_nthash):
-                password = ""
-                nthash = password_or_nthash.lower()
-            else:
-                password = password_or_nthash
-                nthash = self._calculate_nthash(password)
-
-            # Encrypt sensitive data before storing
-            encrypted_password = self.encryption.encrypt(password) if password else ""
-            encrypted_nthash = self.encryption.encrypt(nthash)
+            password, nthash = self._split_credential_secret(password_or_nthash)
+            encrypted_password, encrypted_nthash = self._encrypt_credential_secret(
+                password, nthash
+            )
 
             cursor.execute(
                 """SELECT id, domain, username
@@ -446,21 +452,7 @@ class ModuleRegistry:
             else:
                 cursor.execute("""SELECT id, domain, username, password, nthash FROM credentials ORDER BY id ASC""")
 
-            credentials = []
-            for row in cursor.fetchall():
-                # Decrypt sensitive data
-                password = self.encryption.decrypt(row[3]) if row[3] else ""
-                nthash = self.encryption.decrypt(row[4]) if row[4] else ""
-
-                credentials.append({
-                    'id': row[0],
-                    'domain': row[1],
-                    'username': row[2],
-                    'password': password,
-                    'nthash': nthash
-                })
-
-            return credentials
+            return [self._credential_row_to_dict(row) for row in cursor.fetchall()]
 
         except Exception as e:
             logger.error(f"Error listing credentials: {e}", exc_info=True)
@@ -485,21 +477,7 @@ class ModuleRegistry:
             term = f"%{term}%"
             cursor.execute("""SELECT id, domain, username, password, nthash FROM credentials WHERE username LIKE ? ORDER BY id ASC""", (term,))
 
-            credentials = []
-            for row in cursor.fetchall():
-                # Decrypt sensitive data
-                password = self.encryption.decrypt(row[3]) if row[3] else ""
-                nthash = self.encryption.decrypt(row[4]) if row[4] else ""
-
-                credentials.append({
-                    'id': row[0],
-                    'domain': row[1],
-                    'username': row[2],
-                    'password': password,
-                    'nthash': nthash
-                })
-
-            return credentials
+            return [self._credential_row_to_dict(row) for row in cursor.fetchall()]
 
         except Exception as e:
             logger.error(f"Error finding credentials: {e}", exc_info=True)
@@ -519,21 +497,17 @@ class ModuleRegistry:
             cursor = self.conn.cursor()
             cursor.execute("""SELECT id, domain, username, password, nthash FROM credentials WHERE id=?""", (cred_id,))
 
-            for row in cursor.fetchall():
-                domain = row[1]
-                username = row[2]
-                # Decrypt sensitive data
-                password = self.encryption.decrypt(row[3]) if row[3] else ""
-                nthash = self.encryption.decrypt(row[4]) if row[4] else ""
+            row = cursor.fetchone()
+            if not row:
+                return None
 
-                # Use hash if password is empty
-                if password == "":
-                    password = nthash
+            credential = self._credential_row_to_dict(row)
+            domain = credential["domain"]
+            username = credential["username"]
+            password = credential["password"] or credential["nthash"]
 
-                logger.debug(f"Retrieved credential {cred_id} for {username}@{domain}")
-                return domain, username, password
-
-            return None
+            logger.debug(f"Retrieved credential {cred_id} for {username}@{domain}")
+            return domain, username, password
 
         except Exception as e:
             logger.error(f"Error getting credentials: {e}", exc_info=True)
@@ -544,6 +518,28 @@ class ModuleRegistry:
         password_utf16le = password.encode('utf-16le')
         md4_hash = MD4.new(password_utf16le)
         return md4_hash.hexdigest().lower()
+
+    def _split_credential_secret(self, password_or_nthash: str) -> Tuple[str, str]:
+        """Return plaintext password and NT hash values for a supplied secret."""
+        if re.match(r'^[a-fA-F0-9]{32}$', password_or_nthash):
+            return "", password_or_nthash.lower()
+        return password_or_nthash, self._calculate_nthash(password_or_nthash)
+
+    def _encrypt_credential_secret(self, password: str, nthash: str) -> Tuple[str, str]:
+        """Encrypt credential secret values for storage."""
+        encrypted_password = self.encryption.encrypt(password) if password else ""
+        encrypted_nthash = self.encryption.encrypt(nthash)
+        return encrypted_password, encrypted_nthash
+
+    def _credential_row_to_dict(self, row) -> Dict:
+        """Convert a credential row into a decrypted display dictionary."""
+        return {
+            'id': row[0],
+            'domain': row[1],
+            'username': row[2],
+            'password': self.encryption.decrypt(row[3]) if row[3] else "",
+            'nthash': self.encryption.decrypt(row[4]) if row[4] else "",
+        }
 
     def close(self):
         """Close the database connection"""

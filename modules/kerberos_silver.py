@@ -3,6 +3,7 @@ import re
 import shlex
 from pathlib import Path
 
+from auth_manager import EMPTY_LM_HASH
 from module import BaseModule
 
 
@@ -80,7 +81,7 @@ class SilverTicket(BaseModule):
         if self.is_nt_hash(lookup_secret):
             cmd += [
                 "-hashes",
-                f"aad3b435b51404eeaad3b435b51404ee:{lookup_secret}",
+                f"{EMPTY_LM_HASH}:{lookup_secret}",
                 principal,
                 "0",
             ]

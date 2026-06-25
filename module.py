@@ -4,7 +4,7 @@ import re
 import random
 import importlib.util
 
-from command import Command
+from command import Command, resolve_bundled_tool_token
 from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import List, Tuple
@@ -357,7 +357,7 @@ class BaseModule(ABC):
 
         Tries multiple invocation styles for compatibility across environments.
         """
-        commands = [["../tools/bin/describeTicket.py", str(ticket)]]
+        commands = [[resolve_bundled_tool_token("../tools/bin/describeTicket.py"), str(ticket)]]
 
         errors = []
         for cmd in commands:

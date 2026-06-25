@@ -35,8 +35,8 @@ EXAMPLES = """examples:
 class CliRegistry(ModuleRegistry):
     """ModuleRegistry with process-local module option overrides for CLI runs."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, db_path=None):
+        super().__init__(db_path=db_path)
         self._cli_module_vars: dict[tuple[str, str], str] = {}
         self._persist_module_writes = True
 
